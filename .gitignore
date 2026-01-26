@@ -1,0 +1,22 @@
+# WhatsApp Session (Paling Penting!)
+auth_info/
+# Node Modules
+node_modules/
+
+# Logs & Debugging
+*.log
+*.log2
+*.log~
+bot.log
+bot.log2
+
+# OS Trash & Backup files (dari screenshot ada file bertanda ~)
+*~
+.DS_Store
+Thumbs.db
+
+# Database & Credentials
+# Jika kamu punya file config/db yang berisi password
+lib/db.js 
+# (Hanya jika db.js isinya password mentah, kalau pakai Env lewati ini)
+
