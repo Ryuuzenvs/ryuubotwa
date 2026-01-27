@@ -3,7 +3,8 @@ const { tttBoard, checkWinner, generateBomBoard } = require('../lib/games');
 const { handleOwner } = require('./owner'); // Import file owner
 const { handleGenshin } = require('./genshin'); // Import file genshin
 const { rollDice } = require('../commands/games'); // Import modular dadu
-const { fetchImage } = require('../lib/downloader'); // Sesuaikan path-nya
+const { fetchImage } = require('../lib/downloader'); // lib/downloader
+const { handleUtils } = require('./utils'); // Import file utils
 const { handleGachaSim } = require('../commands/gachaHandler');
 const axios = require('axios');
 const botRateLimit = new Map(); 
@@ -12,20 +13,57 @@ const cooldowns = new Map();
 const OWNER_NUMBER = '149392535371809';
 const prefix = '.';
 const sessionGame = new Map(); // Untuk menyimpan status game aktif
+let botIsMuted = false;
 
 async function handleMessage(sock, m) {
+let body = ""
     try {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return; // 1. ANTI-SELF RESPONSE
+const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
 
         const from = msg.key.remoteJid;
-        const isMe = msg.key.fromMe;
-        const pushName = msg.pushName || 'Player';
-        
-        // --- 2. BOT RATE LIMITER & COOLDOWN ---
+        const pushName = msg.pushName || 'Player';       
+
+        const decodeJid = (jid) => {
+            if (!jid) return jid;
+            if (/:\d+@/gi.test(jid)) return jid.split(':')[0] + '@' + jid.split('@')[1];
+            return jid.replace('@lid', '@s.whatsapp.net');
+        };
+
+        const senderJid = decodeJid(msg.key.participant || from);
+        const senderNumber = senderJid.split('@')[0];
+        const isOwner = senderNumber === OWNER_NUMBER;
+
+        // Pastikan body selalu string
+        // Mendapatkan teks dari berbagai jenis pesan
+        body = (
+            msg.message.conversation || 
+            msg.message.extendedTextMessage?.text || 
+            msg.message.imageMessage?.caption || 
+            msg.message.videoMessage?.caption || 
+            ""
+        ).trim();
+
+        const isCmd = body.startsWith(prefix);
+        const arg = isCmd ? body.slice(prefix.length).trim().split(/ +/g) : [];
+        const command = isCmd ? arg.shift().toLowerCase() : '';
+
+        // --- LOGIC ON/OFF ---
+        if (command === 'on' && isOwner) {
+            botIsMuted = false;
+            return await sock.sendMessage(from, { text: '⏰ Bot kembali aktif!' });
+        }
+        if (command === 'off' && isOwner) {
+            botIsMuted = true;
+            return await sock.sendMessage(from, { text: `💤 Bot sleep. Gunakan ${prefix}on untuk membangunkan.` });
+        }
+
+        if (botIsMuted && !isOwner) return;
+
+        // --- RATE LIMITER ---
         if (botMute.has(from) && Date.now() < botMute.get(from)) return;
-        
         let rate = botRateLimit.get(from) || { count: 0, lastTime: Date.now() };
+        
         if (Date.now() - rate.lastTime < 1000) {
             rate.count++;
         } else {
@@ -38,21 +76,8 @@ async function handleMessage(sock, m) {
             botMute.set(from, Date.now() + 10000); // Mute 10 detik
             return sock.sendMessage(from, { text: "⚠️ *Bot Terlalu Cepat!* Cooldown 10 detik agar tidak spam." });
         }
-
-        // --- 3. HELPER & DECODE JID ---
-        const decodeJid = (jid) => {
-            if (!jid) return jid;
-            if (/:\d+@/gi.test(jid)) return jid.split(':')[0] + '@' + jid.split('@')[1];
-            return jid.replace('@lid', '@s.whatsapp.net');
-        };
-
-        const senderJid = decodeJid(msg.key.participant || from);
-        const senderNumber = senderJid.split('@')[0];
-        const body = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
-        const isOwner = senderNumber === OWNER_NUMBER;
-
         // --- 1. LOGIC PENANGKAP GAME ---
-        if (sessionGame.has(from) && !body.startsWith(prefix)) {
+if (sessionGame.has(from) && !isCmd && body.length > 0) {
             const game = sessionGame.get(from);
             const guess = parseInt(body);
 
@@ -171,10 +196,7 @@ async function handleMessage(sock, m) {
         }
 
         // --- 4. COMMAND ROUTER (Hanya jika ada prefix) ---
-        if (!body.startsWith(prefix)) return;
-        const arg = body.slice(prefix.length).trim().split(/ +/g);
-        const command = arg.shift().toLowerCase();
-
+        if (!isCmd) return;
         /// --- 2. AUTO REGISTER & DATA FETCH ---
         let user = await db.query('SELECT * FROM users WHERE jid = ?', [senderJid]);
         
@@ -206,11 +228,17 @@ async function handleMessage(sock, m) {
         };
 
         // --- MASUKKAN LOGIKA OWNER DI SINI ---
-const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc', 'broadcast', 'getuser', 'status', 'off', 'stats', 'erl', 'sc', 'showdb'];
+const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc', 'broadcast', 'getuser', 'status', 'offterm', 'stats', 'erl', 'sc', 'showdb','restart', 'groups', 'statschat', 'br','log'];
         if (ownerCommands.includes(command)) {
             if (!isOwner) return sock.sendMessage(from, { text: '❌ Fitur ini hanya untuk Owner!' });
             return await handleOwner(sock, from, command, arg, senderJid);
         }
+                
+        //chek user role
+        const groupMetadata = from.endsWith('@g.us') ? await sock.groupMetadata(from) : null;
+        const participants = groupMetadata ? groupMetadata.participants : [];
+        const isBotAdmin = participants.find(p => p.id === sock.user.id.split(':')[0] + '@s.whatsapp.net')?.admin !== null;
+        const isGroupAdmins = participants.find(p => p.id === senderJid)?.admin !== null;
 
         // --- 3. COMMAND ROUTER ---
         switch (command) {
@@ -234,7 +262,10 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
                     `┃ ➥ ${prefix}gachasim (10⚡)\n` +
                     `┃ ➥ ${prefix}allgenshin (list karakter di database)\n┃\n` +
                     `┣━━『 🛠️ UTILITIES 』\n` +
-                    `┃ ➥ ${prefix}rv (Read ViewOnce)\n┃` +
+                    `┃ ➥ ${prefix}rv (Read ViewOnce)\n` +
+                    `┃ ➥ ${prefix}d\n` +
+                    `┃ ➥ ${prefix}del\n` +
+                    `┃ ➥ ${prefix}delete\n` +
                     `┃ ➥ ${prefix}pictba\n┃\n` +
                     `┣━━『 🎒 BACKPACK 』\n` +
                     `┃ ➥ ${prefix}daily\n┃`; // Perhatikan titik koma di sini penting
@@ -251,7 +282,12 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
                         `┃ ➥ ${prefix}resetallstamina\n` +
                         `┃ ➥ ${prefix}bc (pesan)\n`+
                         `┃ ➥ ${prefix}sc\n`+
+                        `┃ ➥ ${prefix}restart\n`+
+                        `┃ ➥ ${prefix}groups\n`+
+                        `┃ ➥ ${prefix}statschat\n`+
                         `┃ ➥ ${prefix}erl\n`+
+                        `┃ ➥ ${prefix}log\n`+
+                        `┃ ➥ ${prefix}br\n`+
                         `┃ ➥ ${prefix}showdb\n`;
                 }
 
@@ -416,10 +452,14 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
         await sock.sendMessage(from, { text: `❌ *Gagal mengirim media:* ${e.message}\n\n_Tips: Coba ulangi lagi, biasanya masalah koneksi server ke WA._` });
     }
     break;
-                case 'dadu':
+            case 'dadu':
             case 'roll':
                 await rollDice(sock, from, msg);
                 break;
+            case 'd':
+case 'del':
+case 'delete':
+    return await handleUtils(sock, from, command, arg, m, isOwner, isGroupAdmins, isBotAdmin);
                 
         }
     } catch (e) {

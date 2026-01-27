@@ -1,3 +1,4 @@
 pm2 restart all # atau
 node index.js > bot.log 2>&1
+pm2 start index.js --name "my-bot"
 

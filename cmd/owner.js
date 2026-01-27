@@ -2,7 +2,7 @@
 const db = require('../lib/db');
 const fs = require('fs'); // Library untuk baca file/folder
 const path = require('path');
-
+const { exec } = require('child_process'); 
 
 async function handleOwner(sock, from, command, arg, senderJid) {
     // TAMBAHKAN BARIS INI:
@@ -40,20 +40,35 @@ async function handleOwner(sock, from, command, arg, senderJid) {
             break;
             
         case 'getuser':
-            // Definisi target di dalam case atau di awal fungsi handleOwner
-            let targetUser = arg[0] ? arg[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net' : null;
-            if (!targetUser) return sock.sendMessage(from, { text: '🚩 Tag orangnya!' });
+            // Modifikasi agar bisa terima tag atau JID mentah
+            let input = arg[0];
+            if (!input) return sock.sendMessage(from, { text: '🚩 Format: .getuser @tag atau .getuser 628xxx@s.whatsapp.net' });
 
-            const [res] = await db.query('SELECT * FROM users WHERE jid = ?', [targetUser]);
-            if (!res) return sock.sendMessage(from, { text: '❌ User tidak ditemukan di database.' });
-            
-            const detail = `📊 *USER DATA DETAILS*\n\n` +
-                `• *Name:* ${res.name}\n` +
-                `• *Status:* ${res.status}\n` +
-                `• *JID:* ${res.jid}\n` +
-                `• *Gold:* ${res.gold}\n` +
-                `• *Stamina:* ${res.stamina}`;
-            await sock.sendMessage(from, { text: detail });
+            // Bersihkan input: ambil angka saja jika dia tag, tapi biarkan jika dia format JID
+            let targetUser;
+            if (input.includes('@s.whatsapp.net')) {
+                targetUser = input.trim(); // Gunakan JID mentah
+            } else {
+                targetUser = input.replace(/[^0-9]/g, '') + '@s.whatsapp.net'; // Olah dari tag/nomor
+            }
+
+            try {
+                const [res] = await db.query('SELECT * FROM users WHERE jid = ?', [targetUser]);
+                
+                if (!res) return sock.sendMessage(from, { text: '❌ User tidak ditemukan di database.' });
+                
+                const detail = `📊 *USER DATA DETAILS*\n\n` +
+                    `• *Name:* ${res.name}\n` +
+                    `• *Status:* ${res.status}\n` +
+                    `• *JID:* ${res.jid}\n` +
+                    `• *Level:* ${res.level} (XP: ${res.xp})\n` +
+                    `• *Gold:* ${res.gold}\n` +
+                    `• *Stamina:* ${res.stamina}`;
+                
+                await sock.sendMessage(from, { text: detail });
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ Database Error: ${e.message}` });
+            }
             break;
     
         case 'bc':
@@ -74,16 +89,41 @@ async function handleOwner(sock, from, command, arg, senderJid) {
             await sock.sendMessage(from, { text: `💻 *SYSTEM STATUS*\n\n• *RAM Usage:* ${ramUsage}\n• *CPU Usage:* ${cpuUsage.toFixed(2)}%` });
             break;
 
-        case 'off':
-            await sock.sendMessage(from, { text: '⚠️ Bot dimatikan...' });
-            process.exit(); 
+        case 'offterm':
+            await sock.sendMessage(from, { text: '🛑 *Sistem Dimatikan Total.* PM2 akan dihentikan. Bot tidak akan aktif sampai dinyalakan manual di terminal VPS.' });
+            
+            setTimeout(() => {
+                // Perintah ini akan mematikan proses pm2 untuk 'my-bot'
+                exec('pm2 stop my-bot', (err, stdout, stderr) => {
+                    if (err) {
+                        console.error(err);
+                        process.exit(); // Fallback jika exec gagal
+                    }
+                });
+            }, 1000);
             break;
         case 'erl':
             try {
                 // Kamu bisa membaca file error log jika bot kamu menyimpan log ke file
                 // Atau untuk sementara, kita kirimkan pesan status sederhana
                 // Jika ingin membaca log terminal real-time, biasanya butuh setup logger (seperti pino/winston)
-                const logPath = './bot.log'; // Ganti dengan path log kamu jika ada
+                const logPath = '/home/ryuu/.pm2/logs/my-bot-error.log'; // Ganti dengan path log kamu jika ada
+                if (fs.existsSync(logPath)) {
+                    const logs = fs.readFileSync(logPath, 'utf8').slice(-2000); // Ambil 2000 karakter terakhir
+                    await sock.sendMessage(from, { text: `📜 *LAST ERROR LOGS:*\n\n\`\`\`${logs}\`\`\`` });
+                } else {
+                    await sock.sendMessage(from, { text: 'ℹ️ File bot.log tidak ditemukan. Pastikan bot dijalankan dengan command: node index.js > bot.log 2>&1' });
+                }
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ Gagal baca log: ${e.message}` });
+            }
+            break;
+            case 'log':
+            try {
+                // Kamu bisa membaca file error log jika bot kamu menyimpan log ke file
+                // Atau untuk sementara, kita kirimkan pesan status sederhana
+                // Jika ingin membaca log terminal real-time, biasanya butuh setup logger (seperti pino/winston)
+                const logPath = '/home/ryuu/.pm2/logs/my-bot-out.log'; // Ganti dengan path log kamu jika ada
                 if (fs.existsSync(logPath)) {
                     const logs = fs.readFileSync(logPath, 'utf8').slice(-2000); // Ambil 2000 karakter terakhir
                     await sock.sendMessage(from, { text: `📜 *LAST ERROR LOGS:*\n\n\`\`\`${logs}\`\`\`` });
@@ -165,6 +205,58 @@ async function handleOwner(sock, from, command, arg, senderJid) {
                 await sock.sendMessage(from, { text: txt.slice(0, 4000) }); // Limit karakter WA
             } catch (e) {
                 await sock.sendMessage(from, { text: `❌ Database Error: ${e.message}` });
+            }
+             break; 
+            case 'br':
+            case 'restart':
+            await sock.sendMessage(from, { text: '🚀 *Restarting...* Sedang menjalankan `pm2 restart all`.' });
+            
+            // Simpan JID (id chat) ke file sementara agar bot tahu harus lapor ke mana saat bangun nanti
+            fs.writeFileSync('./restart_info.json', JSON.stringify({ from, time: Date.now() }));
+
+            setTimeout(() => {
+                exec('pm2 restart all');
+            }, 1000); 
+            break;
+
+        case 'groups':
+        case 'statschat':
+            try {
+                // 1. Ambil data grup
+                const getGroups = await sock.groupFetchAllParticipating();
+                const groups = Object.values(getGroups);
+                
+                // 2. Ambil data user dari database (Limit 50 untuk keamanan chat)
+                const allUsers = await db.query('SELECT name, jid FROM users LIMIT 50');
+                const [userCount] = await db.query('SELECT COUNT(*) as total FROM users');
+                
+                let txt = `📊 *BOT SYSTEM STATS*\n\n`;
+                txt += `👥 *Total User Terdaftar:* ${userCount.total}\n`;
+                txt += `🏘️ *Total Grup Joined:* ${groups.length}\n\n`;
+
+                // 3. Tampilkan List User (Max 50)
+                txt += `👤 *LIST USER (TOP 50):*\n`;
+                allUsers.forEach((u, i) => {
+                    txt += `${i + 1}. ${u.name || 'No Name'} \n   JID: ${u.jid}\n`;
+                });
+
+                if (userCount.total > 50) {
+                    txt += `\n_...dan ${userCount.total - 50} user lainnya._\n`;
+                    txt += `_Tips: Gunakan .showdb users untuk lihat lebih banyak._\n`;
+                }
+
+                txt += `\n📂 *DAFTAR GRUP:* \n`;
+                groups.slice(0, 15).forEach((g, i) => { 
+                    txt += `${i + 1}. ${g.subject} \n    _ID: ${g.id}_\n`;
+                });
+
+                if (groups.length > 15) txt += `_...dan ${groups.length - 15} grup lainnya._\n`;
+                
+                txt += `\n_Gunakan .getuser [jid] untuk detail spesifik_`;
+                
+                await sock.sendMessage(from, { text: txt });
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ Error: ${e.message}` });
             }
             break;
     }
