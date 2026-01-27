@@ -234,10 +234,10 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
                     `┃ ➥ ${prefix}gachasim (10⚡)\n` +
                     `┃ ➥ ${prefix}allgenshin (list karakter di database)\n┃\n` +
                     `┣━━『 🛠️ UTILITIES 』\n` +
-                    `┃ ➥ ${prefix}rv (Read ViewOnce)\n┃\n` +
+                    `┃ ➥ ${prefix}rv (Read ViewOnce)\n┃` +
                     `┃ ➥ ${prefix}pictba\n┃\n` +
                     `┣━━『 🎒 BACKPACK 』\n` +
-                    `┃ ➥ ${prefix}daily\n┃\n`; // Perhatikan titik koma di sini penting
+                    `┃ ➥ ${prefix}daily\n┃`; // Perhatikan titik koma di sini penting
 
                 // 2. Tambahan logika jika Owner
                 if (isOwner) {
@@ -249,10 +249,10 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
                         `┃ ➥ ${prefix}setlevel @tag lvl\n` +
                         `┃ ➥ ${prefix}premium @tag\n` +
                         `┃ ➥ ${prefix}resetallstamina\n` +
-                        `┃ ➥ ${prefix}bc (pesan)\n┃\n`;
-                        `┃ ➥ ${prefix}sc\n┃\n`;
-                        `┃ ➥ ${prefix}erl\n┃\n`;
-                        `┃ ➥ ${prefix}showdb\n┃\n`;
+                        `┃ ➥ ${prefix}bc (pesan)\n`+
+                        `┃ ➥ ${prefix}sc\n`+
+                        `┃ ➥ ${prefix}erl\n`+
+                        `┃ ➥ ${prefix}showdb\n`;
                 }
 
                 // 3. Penutup
