@@ -6,11 +6,12 @@ const { rollDice } = require('../commands/games'); // Import modular dadu
 const { fetchImage } = require('../lib/downloader'); // lib/downloader
 const { handleUtils } = require('./utils'); // Import file utils
 const { handleGachaSim } = require('../commands/gachaHandler');
+const { handleML } = require('./ml'); // Di baris paling atas
 const axios = require('axios');
 const botRateLimit = new Map(); 
 const botMute = new Map();
 const cooldowns = new Map();
-const OWNER_NUMBER = '149392535371809';
+const OWNER_NUMBER = '31864916058166';
 const prefix = '.';
 const sessionGame = new Map(); // Untuk menyimpan status game aktif
 let botIsMuted = false;
@@ -108,6 +109,41 @@ if (sessionGame.has(from) && !isCmd && body.length > 0) {
                 }
                 return;
             }
+            // ... di dalam handleMessage bagian penangkap game ...
+if (game.type === 'ml') {
+    if (!game.players.includes(senderJid)) game.players.push(senderJid);
+    
+    const userGuess = body.toLowerCase().trim();
+    if (userGuess === game.answer.toLowerCase()) {
+        await sock.sendMessage(from, { text: `🎊 *TEBAKAN BENAR!* \n\nHero: *${game.answer}*\nPemenang: @${senderNumber}`, mentions: [senderJid] });
+        await db.query('UPDATE users SET gold = gold + 200 WHERE jid = ?', [senderJid]);
+        sessionGame.delete(from);
+    } else {
+        game.revealedClues += 1;
+        const d = game.fullData;
+        
+        // Mengambil skill dari array JSON berdasarkan jumlah salah
+        // Clue 1: Role, Clue 2: Kelamin, Clue 3-5: Skill-skillnya
+        let clueText = `❌ *SALAH!* (@${senderNumber})\n\n🔍 *CLUE TERBUKA:* \n`;
+        clueText += `➥ Role: ${d.role}\n`;
+        
+        if (game.revealedClues >= 2) clueText += `➥ Kelamin: ${d.kelamin}\n`;
+        
+        // Ambil skill dari array JSON (misal index 0, 1, 2)
+        if (game.revealedClues >= 3 && d.skills[0]) clueText += `➥ Skill Clue 1: ${d.skills[0]}\n`;
+        if (game.revealedClues >= 4 && d.skills[1]) clueText += `➥ Skill Clue 2: ${d.skills[1]}\n`;
+        if (game.revealedClues >= 5 && d.skills[2]) clueText += `➥ Skill Clue 3: ${d.skills[2]}\n`;
+
+        await sock.sendMessage(from, { text: clueText, mentions: [senderJid] });
+        
+        // Batasi maksimal salah agar game tidak selamanya
+        if (game.revealedClues >= 6) {
+            await sock.sendMessage(from, { text: `💀 Game Over! Jawabannya adalah: *${game.answer}*` });
+            sessionGame.delete(from);
+        }
+    }
+    return;
+}
             
             if (game.type === 'gachasim' && game.player === senderJid) {
             return await handleGachaSim(sock, from, body, sessionGame, senderJid, senderNumber);
@@ -261,12 +297,16 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
                     `┃ ➥ ${prefix}tebakgenshin (10⚡)\n` +
                     `┃ ➥ ${prefix}gachasim (10⚡)\n` +
                     `┃ ➥ ${prefix}allgenshin (list karakter di database)\n┃\n` +
+                    `┣━━『 ⚔️ EMEL GAMES 』\n` +
+                    `┃ ➥ ${prefix}tebakml (10⚡)\n` +
+                    `┃ ➥ ${prefix}allhero (list karakter di database)\n┃\n` +
                     `┣━━『 🛠️ UTILITIES 』\n` +
                     `┃ ➥ ${prefix}rv (Read ViewOnce)\n` +
                     `┃ ➥ ${prefix}d\n` +
                     `┃ ➥ ${prefix}del\n` +
                     `┃ ➥ ${prefix}delete\n` +
-                    `┃ ➥ ${prefix}pictba\n┃\n` +
+                    `┃ ➥ ${prefix}pictba\n` +
+                    `┃ ➥ ${prefix}pictloli\n┃\n` +
                     `┣━━『 🎒 BACKPACK 』\n` +
                     `┃ ➥ ${prefix}daily\n┃`; // Perhatikan titik koma di sini penting
 
@@ -452,6 +492,36 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
         await sock.sendMessage(from, { text: `❌ *Gagal mengirim media:* ${e.message}\n\n_Tips: Coba ulangi lagi, biasanya masalah koneksi server ke WA._` });
     }
     break;
+case 'pictloli':
+    try {
+        await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
+
+        const apiUrl = "https://api.gimita.id/api/random/loli";
+        const rawBuffer = await fetchImage(apiUrl);
+        
+        if (!rawBuffer || rawBuffer.length < 100) {
+            throw new Error("File gambar kosong atau rusak.");
+        }
+
+        // Kirim gambar dengan opsi tambahan untuk stabilitas
+        await sock.sendMessage(from, { 
+            image: Buffer.from(rawBuffer), 
+            caption: `✅ *Random loli Picture*`,
+            mimetype: 'image/jpeg',
+            // Tambahkan background process agar tidak blocking
+        }, { 
+            quoted: msg,
+            uploadTimeout: 30000 // Beri waktu lebih lama untuk upload (30 detik)
+        });
+
+        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+
+    } catch (e) {
+        console.error("Error pictba:", e);
+        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+        await sock.sendMessage(from, { text: `❌ *Gagal mengirim media:* ${e.message}\n\n_Tips: Coba ulangi lagi, biasanya masalah koneksi server ke WA._` });
+    }
+    break;
             case 'dadu':
             case 'roll':
                 await rollDice(sock, from, msg);
@@ -460,6 +530,10 @@ const ownerCommands = ['addgold', 'setlevel', 'premium', 'resetallstamina', 'bc'
 case 'del':
 case 'delete':
     return await handleUtils(sock, from, command, arg, m, isOwner, isGroupAdmins, isBotAdmin);
+        // ... di dalam switch(command) ...
+case 'allhero':
+case 'tebakml':
+    return await handleML(sock, from, command, arg, sessionGame, senderJid, senderNumber);
                 
         }
     } catch (e) {
